@@ -2,26 +2,42 @@ use bevy::prelude::*;
 
 fn main() {
     App::new()
+        .insert_resource(WindowDescriptor {
+            title: "Combine".to_string(),
+            width: 805.,
+            height: 484.,
+            position: WindowPosition::At(Vec2 { x: 1106., y: 516. }),
+            present_mode: bevy::window::PresentMode::AutoVsync,
+            ..default()
+        })
         .add_plugins(DefaultPlugins)
+        .add_system(resize_notificator)
+        .add_system(play_on_load)
         .add_startup_system(setup)
         .run();
+}
+
+struct Animations {
+    walk: Handle<AnimationClip>,
 }
 
 /// set up a simple 3D scene
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     asset_server.watch_for_changes().unwrap();
 
-    let animal_scene = asset_server.load("animals.gltf#Scene0");
-
-    // mesh
+    // load scene
     commands.spawn_bundle(SceneBundle {
-        scene: animal_scene,
+        scene: asset_server.load("animals.gltf#Scene0"),
         ..default()
+    });
+
+    // load animations
+    commands.insert_resource(Animations {
+        walk: asset_server.load("animals.gltf#Animation0"),
     });
 
     // add entities to the world
@@ -65,39 +81,25 @@ fn setup(
             });
         }
     }
-    // // unlit sphere
-    // commands.spawn_bundle(PbrBundle {
-    //     mesh: meshes.add(Mesh::from(shape::Icosphere {
-    //         radius: 0.45,
-    //         subdivisions: 32,
-    //     })),
-    //     material: materials.add(StandardMaterial {
-    //         base_color: Color::hex("ffd891").unwrap(),
-    //         // vary key PBR parameters on a grid of spheres to show the effect
-    //         unlit: true,
-    //         ..default()
-    //     }),
-    //     transform: Transform::from_xyz(-5.0, -2.5, 0.0),
-    //     ..default()
-    // });
-    // // light
-    // commands.spawn_bundle(PointLightBundle {
-    //     transform: Transform::from_xyz(50.0, 50.0, 50.0),
-    //     point_light: PointLight {
-    //         intensity: 600000.,
-    //         range: 100.,
-    //         ..default()
-    //     },
-    //     ..default()
-    // });
-    // // camera
-    // commands.spawn_bundle(Camera3dBundle {
-    //     transform: Transform::from_xyz(0.0, 0.0, 8.0).looking_at(Vec3::default(), Vec3::Y),
-    //     projection: OrthographicProjection {
-    //         scale: 0.01,
-    //         ..default()
-    //     }
-    //     .into(),
-    //     ..default()
-    // });
+}
+
+fn resize_notificator(
+    resize_event: Res<Events<bevy::window::WindowResized>>,
+    move_event: Res<Events<bevy::window::WindowMoved>>,
+) {
+    for e in resize_event.get_reader().iter(&resize_event) {
+        println!("width: {} height: {}", e.width, e.height);
+    }
+    for e in move_event.get_reader().iter(&move_event) {
+        println!("x: {} y: {}", e.position.x, e.position.y);
+    }
+}
+
+fn play_on_load(
+    animations: Res<Animations>,
+    mut players: Query<&mut AnimationPlayer, Added<AnimationPlayer>>,
+) {
+    for mut player in players.iter_mut() {
+        player.play(animations.walk.clone()).repeat();
+    }
 }
