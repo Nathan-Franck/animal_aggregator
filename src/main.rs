@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use bevy::prelude::*;
 
 fn main() {
@@ -17,8 +19,17 @@ fn main() {
         .run();
 }
 
-struct Animations {
-    walk: Handle<AnimationClip>,
+// struct Animations {
+//     idle: Handle<AnimationClip>,
+//     walk: Handle<AnimationClip>,
+// }
+
+type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+enum AnimationID {
+    Idle,
+    Walk,
 }
 
 /// set up a simple 3D scene
@@ -36,9 +47,21 @@ fn setup(
     });
 
     // load animations
-    commands.insert_resource(Animations {
-        walk: asset_server.load("animals.gltf#Animation0"),
-    });
+    commands.insert_resource(
+        [
+            (
+                AnimationID::Idle,
+                asset_server.load("animals.gltf#Animation0") as Handle<AnimationClip>,
+            ),
+            (
+                AnimationID::Walk,
+                asset_server.load("animals.gltf#Animation1") as Handle<AnimationClip>,
+            ),
+        ]
+        .iter()
+        .cloned()
+        .collect::<Animations>(),
+    );
 
     // add entities to the world
     for y in -2..=2 {
@@ -96,10 +119,39 @@ fn resize_notificator(
 }
 
 fn play_on_load(
-    animations: Res<Animations>,
+    mut animations: ResMut<Animations>,
+    mut animation_clips: ResMut<Assets<AnimationClip>>,
     mut players: Query<&mut AnimationPlayer, Added<AnimationPlayer>>,
 ) {
+    for (animation_id, animation_handle) in animations.clone().iter() {
+        // HACK - offset animations to start at 0, requires animations to have a keyframe at the 0th frame of their "action" (Blender term)
+        if let Some(animation_clip) = animation_clips.get_mut(&animation_handle) {
+            let existing_animation_clip = animation_clip.clone();
+            let curves_map = existing_animation_clip.curves();
+            let mut new_animation_clip = AnimationClip::default();
+            for (path, curves) in curves_map.iter() {
+                for curve in curves.iter() {
+                    if let Some(first_time) = curve.keyframe_timestamps.first() {
+                        new_animation_clip.add_curve_to_path(
+                            path.clone(),
+                            VariableCurve {
+                                keyframe_timestamps: curve
+                                    .keyframe_timestamps
+                                    .iter()
+                                    .map(|timestamp| timestamp - first_time)
+                                    .collect(),
+                                keyframes: curve.keyframes.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+            animations.insert(animation_id.clone(), animation_clips.set(animation_handle, new_animation_clip));
+        }
+    }
+
+    // start playing animation
     for mut player in players.iter_mut() {
-        player.play(animations.walk.clone()).repeat();
+        player.play(animations[&AnimationID::Walk].clone()).repeat();
     }
 }
