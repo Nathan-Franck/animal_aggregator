@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use bevy::prelude::*;
 
@@ -47,21 +47,28 @@ fn setup(
     });
 
     // load animations
-    commands.insert_resource(
-        [
-            (
-                AnimationID::Idle,
-                asset_server.load("animals.gltf#Animation0") as Handle<AnimationClip>,
-            ),
-            (
-                AnimationID::Walk,
-                asset_server.load("animals.gltf#Animation1") as Handle<AnimationClip>,
-            ),
-        ]
-        .iter()
-        .cloned()
-        .collect::<Animations>(),
-    );
+    commands.insert_resource(Animations::from_iter([
+        (
+            AnimationID::Idle,
+            asset_server.load("animals.gltf#Animation0") as Handle<AnimationClip>,
+        ),
+        (
+            AnimationID::Walk,
+            asset_server.load("animals.gltf#Animation1") as Handle<AnimationClip>,
+        ),
+    ]));
+
+    commands.spawn_bundle(DirectionalLightBundle {
+        transform: Transform {
+            rotation: Quat::from_euler(EulerRot::XYZ, -45., 0., 0.),
+            ..Default::default()
+        },
+        directional_light: DirectionalLight {
+            shadows_enabled: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 
     // add entities to the world
     for y in -2..=2 {
@@ -123,8 +130,8 @@ fn play_on_load(
     mut animation_clips: ResMut<Assets<AnimationClip>>,
     mut players: Query<&mut AnimationPlayer, Added<AnimationPlayer>>,
 ) {
+    // HACK - offset animations to start at 0, requires animations to have a keyframe at the 0th frame of their "action" (Blender term)
     for (animation_id, animation_handle) in animations.clone().iter() {
-        // HACK - offset animations to start at 0, requires animations to have a keyframe at the 0th frame of their "action" (Blender term)
         if let Some(animation_clip) = animation_clips.get_mut(&animation_handle) {
             let existing_animation_clip = animation_clip.clone();
             let curves_map = existing_animation_clip.curves();
@@ -146,7 +153,10 @@ fn play_on_load(
                     }
                 }
             }
-            animations.insert(animation_id.clone(), animation_clips.set(animation_handle, new_animation_clip));
+            animations.insert(
+                animation_id.clone(),
+                animation_clips.set(animation_handle, new_animation_clip),
+            );
         }
     }
 
