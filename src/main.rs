@@ -93,7 +93,7 @@ fn gamepad_system(
             x: axes
                 .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
                 .unwrap(),
-            z: axes
+            z: -axes
                 .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickY))
                 .unwrap(),
             ..default()
@@ -102,7 +102,17 @@ fn gamepad_system(
         let camera_relative_input = if let Ok(camera_root) = camera.get_single() {
             let camera_transform = global_transforms.get(camera_root.get()).unwrap();
             let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
-            camera_rotation * left_stick
+            let flat_camera_rotation = Quat::from_axis_angle(
+                Vec3::Y,
+                ((camera_rotation * Vec3::Z)
+                    * Vec3 {
+                        x: 1.,
+                        y: 0.,
+                        z: 1.,
+                    })
+                .angle_between(Vec3::Z),
+            );
+            flat_camera_rotation * left_stick
         } else {
             left_stick
         };
