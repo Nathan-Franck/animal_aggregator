@@ -1,6 +1,7 @@
+use bevy_inspector_egui::WorldInspectorPlugin;
 use std::collections::HashMap;
 
-use bevy::prelude::*;
+use bevy::{ecs::*, prelude::*};
 
 fn main() {
     App::new()
@@ -13,9 +14,12 @@ fn main() {
             ..default()
         })
         .add_plugins(DefaultPlugins)
+        .add_system(connect_from_scene)
         .add_system(resize_notificator)
         .add_system(play_on_load)
+        .add_system(gamepad_system)
         .add_startup_system(setup)
+        .add_plugin(WorldInspectorPlugin::new())
         .run();
 }
 
@@ -26,10 +30,94 @@ fn main() {
 
 type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 
+#[derive(Component)]
+struct Player;
+
 #[derive(Clone, Eq, PartialEq, Hash)]
 enum AnimationID {
     Idle,
     Walk,
+}
+
+fn connect_from_scene(
+    mut commands: Commands,
+    element: Query<(Entity, &Name), (With<Transform>, Added<Name>)>,
+    // names: Query<(Entity, &Name)>,
+) {
+    for (entity, name) in element.iter() {
+        println!("{}", name);
+    }
+    let bunnies = element
+        .iter()
+        .filter(|&(_, name)| name.eq(&Name::new("Puppy")));
+    for (entity, name) in bunnies {
+        println!("{}", name);
+        commands.entity(entity).insert(Player);
+    }
+}
+
+fn gamepad_system(
+    gamepads: Res<Gamepads>,
+    button_inputs: Res<Input<GamepadButton>>,
+    button_axes: Res<Axis<GamepadButton>>,
+    axes: Res<Axis<GamepadAxis>>,
+    mut player: Query<&mut Transform, With<Player>>,
+    camera: Query<&Parent, With<Camera3d>>,
+    global_transforms: Query<&GlobalTransform>,
+) {
+    for gamepad in gamepads.iter().cloned() {
+        if button_inputs.just_pressed(GamepadButton::new(gamepad, GamepadButtonType::South)) {
+            info!("{:?} just pressed South", gamepad);
+        } else if button_inputs.just_released(GamepadButton::new(gamepad, GamepadButtonType::South))
+        {
+            info!("{:?} just released South", gamepad);
+        }
+
+        let right_trigger = button_axes
+            .get(GamepadButton::new(
+                gamepad,
+                GamepadButtonType::RightTrigger2,
+            ))
+            .unwrap();
+        if right_trigger.abs() > 0.01 {
+            info!("{:?} RightTrigger2 value is {}", gamepad, right_trigger);
+        }
+
+        let left_stick_x = axes
+            .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
+            .unwrap();
+        if left_stick_x.abs() > 0.01 {
+            info!("{:?} LeftStickX value is {}", gamepad, left_stick_x);
+        }
+        let left_stick = Vec3 {
+            x: axes
+                .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
+                .unwrap(),
+            z: axes
+                .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickY))
+                .unwrap(),
+            ..default()
+        };
+
+        let camera_relative_input = if let Ok(camera_root) = camera.get_single() {
+            let camera_transform = global_transforms.get(camera_root.get()).unwrap();
+            let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
+            camera_rotation * left_stick
+        } else {
+            left_stick
+        };
+
+        for mut transform in player.iter_mut() {
+            let mut translation = transform.translation;
+            translation += camera_relative_input;
+
+            // TEMP limit on position to keep player in-frame
+            if translation.length() > 10. {
+                translation *= 10. / translation.length();
+            }
+            transform.translation = translation;
+        }
+    }
 }
 
 /// set up a simple 3D scene
@@ -64,7 +152,41 @@ fn setup(
             ..Default::default()
         },
         directional_light: DirectionalLight {
-            shadows_enabled: true,
+            // shadows_enabled: true,
+            // shadow_projection: OrthographicProjection {
+            //     bottom: -8.,
+            //     top: 8.,
+            //     left: -8.,
+            //     right: 8.,
+            //     near: -80.,
+            //     far: 80.,
+            //     ..Default::default()
+            // },
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    commands.spawn_bundle(PointLightBundle {
+        transform: Transform {
+            translation: Vec3 {
+                x: 0.,
+                y: -10.,
+                z: 0.,
+            },
+            rotation: Quat::from_euler(EulerRot::XYZ, 45., 0., 0.),
+            ..Default::default()
+        },
+        point_light: PointLight {
+            color: Color::Rgba {
+                red: 0.,
+                green: 1.,
+                blue: 0.,
+                alpha: 1.,
+            },
+            range: 50.,
+            radius: 10.,
+            intensity: 3000.,
             ..Default::default()
         },
         ..Default::default()
