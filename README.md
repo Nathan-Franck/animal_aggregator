@@ -1,5 +1,6 @@
-# bevy_sandbox
-playplace before game jam 2
+# Animal Aggregator
+
+Collect all the animals and bring them home!
 
 # Theme - Combine
 
