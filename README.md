@@ -3,6 +3,14 @@ playplace before game jam 2
 
 # Theme - Combine
 
+Emulate cherry powerup in Mario ---
+
+Start controlling a single animal, when you tag other animals you control them as well (naively).
+
+Objective is to get animals to a goal.
+
+Challange from figuring out which animals to collect first given the pitfalls.
+
 # Development
 
 Fast iteration

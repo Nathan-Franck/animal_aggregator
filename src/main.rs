@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_rapier3d::{prelude::*, rapier::prelude::ColliderShape};
+use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
-use std::{collections::HashMap, slice::Iter};
+use std::collections::HashMap;
 
 fn main() {
     App::new()
@@ -19,11 +19,12 @@ fn main() {
         // .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(connect_from_scene)
         .add_system(resize_notificator)
-        .add_system(play_on_load)
+        // .add_system(play_on_load)
         .add_system(gamepad_system)
         .add_startup_system(setup)
         .add_startup_system(setup_physics)
         .add_plugin(WorldInspectorPlugin::new())
+        .add_system(kill_player)
         .run();
 }
 
@@ -32,11 +33,14 @@ fn setup_physics(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // /* Create the ground. */
-    // commands
-    //     .spawn()
-    //     .insert(Collider::cuboid(100.0, 0.1, 100.0))
-    //     .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -2.0, 0.0)));
+    /* Create the ground. */
+    commands
+        .spawn()
+        .insert(Collider::cuboid(1000.0, 0.1, 1000.0))
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        .insert(KillWall)
+        .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -10.0, 0.0)));
+
     // add entities to the world
     for y in -2..=2 {
         for x in -5..=5 {
@@ -68,7 +72,12 @@ const CHARACTER_SPEED: f32 = 10.0;
 type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 
 #[derive(Component)]
-struct Player;
+struct Player {
+    spawn_position: Vec3,
+}
+
+#[derive(Component)]
+struct KillWall;
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 enum AnimationID {
@@ -76,24 +85,50 @@ enum AnimationID {
     Walk,
 }
 
+fn kill_player(
+    mut collisions: EventReader<CollisionEvent>,
+    kill_wall: Query<&KillWall>,
+    mut players: Query<(&Player, &mut Transform)>,
+) {
+    for collision in collisions.iter() {
+        println!("collision!");
+        match collision {
+            &CollisionEvent::Started(a, b, _) => {
+                let entities = [a, b];
+                if entities.iter().any(|&entity| kill_wall.contains(entity)) {
+                    for &entity in entities.iter() {
+                        match players.get_mut(entity) {
+                            Ok((player, mut transform)) => transform.translation = player.spawn_position,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn connect_from_scene(
-    named_entities: Query<(Entity, &Name), (With<Transform>, Added<Name>)>,
+    named_entities: Query<(Entity, &Name, &Transform), Added<Name>>,
     named_entities_with_children: Query<(Entity, &Name, &Children), Added<Name>>,
     meshes: Query<&Handle<Mesh>>,
     mesh_assets: Res<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    for (_, name) in named_entities.iter() {
+    for (_, name, _) in named_entities.iter() {
         println!("{}", name);
     }
     let bunnies = named_entities
         .iter()
-        .filter(|&(_, name)| name.eq(&Name::new("Puppy")));
-    for (entity, name) in bunnies {
+        .filter(|&(_, name, _)| name.eq(&Name::new("Puppy")));
+    for (entity, name, transform) in bunnies {
         println!("{}", name);
         commands
             .entity(entity)
-            .insert(Player)
+            .insert(Player {
+                spawn_position: transform.translation,
+            })
             .insert(RigidBody::Dynamic)
             .insert(Collider::ball(2.0))
             .insert(Restitution::coefficient(0.7))
@@ -107,7 +142,10 @@ fn connect_from_scene(
             .iter()
             .map(|&child| meshes.get(child))
             .partition(Result::is_ok);
-        let child_mesh_entities: Vec<_> = child_mesh_entities.into_iter().map(Result::unwrap).collect();
+        let child_mesh_entities: Vec<_> = child_mesh_entities
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
         for mesh in child_mesh_entities {
             commands.entity(entity).insert(
                 Collider::from_bevy_mesh(
@@ -161,11 +199,6 @@ fn gamepad_system(
         for mut transform in player.iter_mut() {
             let mut translation = transform.translation;
             translation += camera_relative_input * time.delta_seconds() * CHARACTER_SPEED;
-
-            // TEMP limit on position to keep player in-frame
-            if translation.length() > 10. {
-                translation *= 10. / translation.length();
-            }
             transform.translation = translation;
         }
     }
@@ -278,6 +311,6 @@ fn play_on_load(
 
     // start playing animation
     for mut player in players.iter_mut() {
-        player.play(animations[&AnimationID::Idle].clone()).repeat();
+        player.play(animations[&AnimationID::Walk].clone()).repeat();
     }
 }
