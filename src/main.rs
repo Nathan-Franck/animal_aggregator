@@ -62,7 +62,8 @@ fn setup_physics(
                 })
                 .insert(RigidBody::Dynamic)
                 .insert(Collider::ball(0.5))
-                .insert(Restitution::coefficient(0.7));
+                .insert(Restitution::coefficient(0.7))
+                .insert(ColliderMassProperties::Density(0.01));
         }
     }
 }
@@ -98,7 +99,9 @@ fn kill_player(
                 if entities.iter().any(|&entity| kill_wall.contains(entity)) {
                     for &entity in entities.iter() {
                         match players.get_mut(entity) {
-                            Ok((player, mut transform)) => transform.translation = player.spawn_position,
+                            Ok((player, mut transform)) => {
+                                transform.translation = player.spawn_position
+                            }
                             _ => {}
                         }
                     }
