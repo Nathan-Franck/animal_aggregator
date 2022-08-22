@@ -1,7 +1,8 @@
+use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
-use std::collections::HashMap;
-
-use bevy::{ecs::*, prelude::*};
+use bevy_rapier3d::{prelude::*, rapier::prelude::ColliderShape};
+use rand::prelude::random;
+use std::{collections::HashMap, slice::Iter};
 
 fn main() {
     App::new()
@@ -14,19 +15,55 @@ fn main() {
             ..default()
         })
         .add_plugins(DefaultPlugins)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+        // .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(connect_from_scene)
         .add_system(resize_notificator)
         .add_system(play_on_load)
         .add_system(gamepad_system)
         .add_startup_system(setup)
+        .add_startup_system(setup_physics)
         .add_plugin(WorldInspectorPlugin::new())
         .run();
 }
 
-// struct Animations {
-//     idle: Handle<AnimationClip>,
-//     walk: Handle<AnimationClip>,
-// }
+fn setup_physics(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // /* Create the ground. */
+    // commands
+    //     .spawn()
+    //     .insert(Collider::cuboid(100.0, 0.1, 100.0))
+    //     .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -2.0, 0.0)));
+    // add entities to the world
+    for y in -2..=2 {
+        for x in -5..=5 {
+            // sphere
+            commands
+                .spawn_bundle(PbrBundle {
+                    mesh: meshes.add(Mesh::from(shape::Icosphere {
+                        radius: 0.45,
+                        subdivisions: 32,
+                    })),
+                    material: materials.add(StandardMaterial {
+                        base_color: Color::hsl(random::<f32>() * 256., 1., 0.5),
+                        metallic: 0.,
+                        perceptual_roughness: 0.,
+                        ..default()
+                    }),
+                    transform: Transform::from_xyz(x as f32, y as f32 + 0.5, 0.0),
+                    ..default()
+                })
+                .insert(RigidBody::Dynamic)
+                .insert(Collider::ball(0.5))
+                .insert(Restitution::coefficient(0.7));
+        }
+    }
+}
+
+const CHARACTER_SPEED: f32 = 10.0;
 
 type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 
@@ -40,55 +77,59 @@ enum AnimationID {
 }
 
 fn connect_from_scene(
+    named_entities: Query<(Entity, &Name), (With<Transform>, Added<Name>)>,
+    named_entities_with_children: Query<(Entity, &Name, &Children), Added<Name>>,
+    meshes: Query<&Handle<Mesh>>,
+    mesh_assets: Res<Assets<Mesh>>,
     mut commands: Commands,
-    element: Query<(Entity, &Name), (With<Transform>, Added<Name>)>,
-    // names: Query<(Entity, &Name)>,
 ) {
-    for (entity, name) in element.iter() {
+    for (_, name) in named_entities.iter() {
         println!("{}", name);
     }
-    let bunnies = element
+    let bunnies = named_entities
         .iter()
         .filter(|&(_, name)| name.eq(&Name::new("Puppy")));
     for (entity, name) in bunnies {
         println!("{}", name);
-        commands.entity(entity).insert(Player);
+        commands
+            .entity(entity)
+            .insert(Player)
+            .insert(RigidBody::Dynamic)
+            .insert(Collider::ball(2.0))
+            .insert(Restitution::coefficient(0.7))
+            .insert(LockedAxes::ROTATION_LOCKED);
+    }
+    let level = named_entities_with_children
+        .iter()
+        .filter(|&(_, name, _)| name.eq(&Name::new("Level")));
+    for (entity, name, children) in level {
+        let (child_mesh_entities, _): (Vec<_>, Vec<_>) = children
+            .iter()
+            .map(|&child| meshes.get(child))
+            .partition(Result::is_ok);
+        let child_mesh_entities: Vec<_> = child_mesh_entities.into_iter().map(Result::unwrap).collect();
+        for mesh in child_mesh_entities {
+            commands.entity(entity).insert(
+                Collider::from_bevy_mesh(
+                    mesh_assets.get(mesh).unwrap(),
+                    &ComputedColliderShape::TriMesh,
+                )
+                .unwrap(),
+            );
+        }
+        println!("Level Geometry Found: {}", name);
     }
 }
 
 fn gamepad_system(
+    time: Res<Time>,
     gamepads: Res<Gamepads>,
-    button_inputs: Res<Input<GamepadButton>>,
-    button_axes: Res<Axis<GamepadButton>>,
     axes: Res<Axis<GamepadAxis>>,
-    mut player: Query<&mut Transform, With<Player>>,
     camera: Query<&Parent, With<Camera3d>>,
     global_transforms: Query<&GlobalTransform>,
+    mut player: Query<&mut Transform, With<Player>>,
 ) {
     for gamepad in gamepads.iter().cloned() {
-        if button_inputs.just_pressed(GamepadButton::new(gamepad, GamepadButtonType::South)) {
-            info!("{:?} just pressed South", gamepad);
-        } else if button_inputs.just_released(GamepadButton::new(gamepad, GamepadButtonType::South))
-        {
-            info!("{:?} just released South", gamepad);
-        }
-
-        let right_trigger = button_axes
-            .get(GamepadButton::new(
-                gamepad,
-                GamepadButtonType::RightTrigger2,
-            ))
-            .unwrap();
-        if right_trigger.abs() > 0.01 {
-            info!("{:?} RightTrigger2 value is {}", gamepad, right_trigger);
-        }
-
-        let left_stick_x = axes
-            .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
-            .unwrap();
-        if left_stick_x.abs() > 0.01 {
-            info!("{:?} LeftStickX value is {}", gamepad, left_stick_x);
-        }
         let left_stick = Vec3 {
             x: axes
                 .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
@@ -119,7 +160,7 @@ fn gamepad_system(
 
         for mut transform in player.iter_mut() {
             let mut translation = transform.translation;
-            translation += camera_relative_input;
+            translation += camera_relative_input * time.delta_seconds() * CHARACTER_SPEED;
 
             // TEMP limit on position to keep player in-frame
             if translation.length() > 10. {
@@ -130,12 +171,7 @@ fn gamepad_system(
     }
 }
 
-/// set up a simple 3D scene
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     asset_server.watch_for_changes().unwrap();
 
     // load scene
@@ -162,16 +198,6 @@ fn setup(
             ..Default::default()
         },
         directional_light: DirectionalLight {
-            // shadows_enabled: true,
-            // shadow_projection: OrthographicProjection {
-            //     bottom: -8.,
-            //     top: 8.,
-            //     left: -8.,
-            //     right: 8.,
-            //     near: -80.,
-            //     far: 80.,
-            //     ..Default::default()
-            // },
             ..Default::default()
         },
         ..Default::default()
@@ -201,48 +227,6 @@ fn setup(
         },
         ..Default::default()
     });
-
-    // add entities to the world
-    for y in -2..=2 {
-        for x in -5..=5 {
-            let x01 = (x + 5) as f32 / 10.0;
-            let y01 = (y + 2) as f32 / 4.0;
-            let kitty_mesh = asset_server.load("animals.gltf#Mesh0/Primitive0");
-
-            // kitty mesh
-            commands.spawn_bundle(PbrBundle {
-                mesh: kitty_mesh,
-                material: materials.add(StandardMaterial {
-                    base_color: Color::hex("ffd891").unwrap(),
-                    // vary key PBR parameters on a grid of spheres to show the effect
-                    metallic: y01,
-                    perceptual_roughness: x01,
-                    ..default()
-                }),
-                transform: Transform {
-                    translation: Vec3 {
-                        x: x as f32,
-                        y: y as f32 + 0.5,
-                        z: 0.0,
-                    },
-                    rotation: Quat::from_axis_angle(
-                        Vec3 {
-                            x: 0.5,
-                            y: 0.5,
-                            z: 0.5,
-                        },
-                        5.0,
-                    ),
-                    scale: Vec3 {
-                        x: 0.25,
-                        y: 0.25,
-                        z: 0.25,
-                    },
-                },
-                ..default()
-            });
-        }
-    }
 }
 
 fn resize_notificator(
@@ -294,6 +278,6 @@ fn play_on_load(
 
     // start playing animation
     for mut player in players.iter_mut() {
-        player.play(animations[&AnimationID::Walk].clone()).repeat();
+        player.play(animations[&AnimationID::Idle].clone()).repeat();
     }
 }
