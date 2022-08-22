@@ -10,7 +10,7 @@ Start controlling a single animal, when you tag other animals you control them a
 
 Objective is to get animals to a goal.
 
-Challange from figuring out which animals to collect first given the pitfalls.
+Challange from figuring out which animals to collect first and avoid pitfalls.
 
 # Development
 
