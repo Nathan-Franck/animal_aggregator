@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
 use std::collections::HashMap;
@@ -9,8 +9,8 @@ fn main() {
         .insert_resource(WindowDescriptor {
             title: "Combine".to_string(),
             width: 805.,
-            height: 484.,
-            position: WindowPosition::At(Vec2 { x: 1106., y: 516. }),
+            height: 430.,
+            position: WindowPosition::At(Vec2 { x: 67., y: 603. }),
             present_mode: bevy::window::PresentMode::AutoVsync,
             ..default()
         })
@@ -25,7 +25,28 @@ fn main() {
         .add_startup_system(setup_physics)
         .add_plugin(WorldInspectorPlugin::new())
         .add_system(kill_player)
+        .add_system(follow_cam)
+        .register_inspectable::<Toggles>()
         .run();
+}
+
+#[derive(Component)]
+struct GameCamera {}
+
+#[derive(Component, Inspectable)]
+struct Toggles {}
+
+fn follow_cam(
+    toggles: Query<&Toggles>,
+    player: Query<&GlobalTransform, With<Player>>,
+    mut camera: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
+) {
+    for mut camera_global_transform in camera.iter_mut() {
+        for player_global_transform in player.iter() {
+            camera_global_transform.translation = player_global_transform.translation()
+                + camera_global_transform.rotation * Vec3::Z * 50.;
+        }
+    }
 }
 
 fn setup_physics(
@@ -48,7 +69,7 @@ fn setup_physics(
             commands
                 .spawn_bundle(PbrBundle {
                     mesh: meshes.add(Mesh::from(shape::Icosphere {
-                        radius: 0.45,
+                        radius: 0.5,
                         subdivisions: 32,
                     })),
                     material: materials.add(StandardMaterial {
@@ -68,7 +89,7 @@ fn setup_physics(
     }
 }
 
-const CHARACTER_SPEED: f32 = 10.0;
+const CHARACTER_SPEED: f32 = 12.0;
 
 type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 
@@ -92,12 +113,11 @@ fn kill_player(
     mut players: Query<(&Player, &mut Transform)>,
 ) {
     for collision in collisions.iter() {
-        println!("collision!");
+        // println!("collision!");
         match collision {
             &CollisionEvent::Started(a, b, _) => {
-                let entities = [a, b];
-                if entities.iter().any(|&entity| kill_wall.contains(entity)) {
-                    for &entity in entities.iter() {
+                if [a, b].iter().any(|&entity| kill_wall.contains(entity)) {
+                    for &entity in [a, b].iter() {
                         match players.get_mut(entity) {
                             Ok((player, mut transform)) => {
                                 transform.translation = player.spawn_position
@@ -111,6 +131,8 @@ fn kill_player(
         }
     }
 }
+
+// fn follow_cam
 
 fn connect_from_scene(
     named_entities: Query<(Entity, &Name, &Transform), Added<Name>>,
@@ -134,7 +156,7 @@ fn connect_from_scene(
             })
             .insert(RigidBody::Dynamic)
             .insert(Collider::ball(2.0))
-            .insert(Restitution::coefficient(0.7))
+            .insert(Restitution::coefficient(0.2))
             .insert(LockedAxes::ROTATION_LOCKED);
     }
     let level = named_entities_with_children
@@ -166,8 +188,7 @@ fn gamepad_system(
     time: Res<Time>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
-    camera: Query<&Parent, With<Camera3d>>,
-    global_transforms: Query<&GlobalTransform>,
+    camera: Query<&GlobalTransform, With<GameCamera>>,
     mut player: Query<&mut Transform, With<Player>>,
 ) {
     for gamepad in gamepads.iter().cloned() {
@@ -181,8 +202,7 @@ fn gamepad_system(
             ..default()
         };
 
-        let camera_relative_input = if let Ok(camera_root) = camera.get_single() {
-            let camera_transform = global_transforms.get(camera_root.get()).unwrap();
+        let camera_relative_input = if let Ok(camera_transform) = camera.get_single() {
             let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
             let flat_camera_rotation = Quat::from_axis_angle(
                 Vec3::Y,
@@ -208,6 +228,10 @@ fn gamepad_system(
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands
+        .spawn()
+        .insert(Toggles {})
+        .insert(Name::new("Toggles"));
     asset_server.watch_for_changes().unwrap();
 
     // load scene
