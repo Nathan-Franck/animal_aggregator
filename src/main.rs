@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{math::vec3, prelude::*};
 use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
@@ -89,7 +89,7 @@ fn setup_physics(
     }
 }
 
-const CHARACTER_SPEED: f32 = 12.0;
+const CHARACTER_SPEED: f32 = 12.;
 
 type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 
@@ -113,7 +113,6 @@ fn kill_player(
     mut players: Query<(&Player, &mut Transform)>,
 ) {
     for collision in collisions.iter() {
-        // println!("collision!");
         match collision {
             &CollisionEvent::Started(a, b, _) => {
                 if [a, b].iter().any(|&entity| kill_wall.contains(entity)) {
@@ -155,6 +154,7 @@ fn connect_from_scene(
                 spawn_position: transform.translation,
             })
             .insert(RigidBody::Dynamic)
+            .insert(Velocity { ..default() })
             .insert(Collider::ball(2.0))
             .insert(Restitution::coefficient(0.2))
             .insert(LockedAxes::ROTATION_LOCKED);
@@ -189,7 +189,7 @@ fn gamepad_system(
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
     camera: Query<&GlobalTransform, With<GameCamera>>,
-    mut player: Query<&mut Transform, With<Player>>,
+    mut player: Query<&mut Velocity, With<Player>>,
 ) {
     for gamepad in gamepads.iter().cloned() {
         let left_stick = Vec3 {
@@ -219,10 +219,9 @@ fn gamepad_system(
             left_stick
         };
 
-        for mut transform in player.iter_mut() {
-            let mut translation = transform.translation;
-            translation += camera_relative_input * time.delta_seconds() * CHARACTER_SPEED;
-            transform.translation = translation;
+        for mut velocity in player.iter_mut() {
+            velocity.linvel.x = camera_relative_input.x * CHARACTER_SPEED;
+            velocity.linvel.z = camera_relative_input.z * CHARACTER_SPEED;
         }
     }
 }
