@@ -1,4 +1,4 @@
-use bevy::{math::vec3, prelude::*};
+use bevy::prelude::*;
 use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
@@ -26,26 +26,26 @@ fn main() {
         .add_plugin(WorldInspectorPlugin::new())
         .add_system(kill_player)
         .add_system(follow_cam)
+        .add_system(player_collectables)
         .register_inspectable::<Toggles>()
         .run();
 }
-
-#[derive(Component)]
-struct GameCamera {}
 
 #[derive(Component, Inspectable)]
 struct Toggles {}
 
 fn follow_cam(
-    toggles: Query<&Toggles>,
+    // toggles: Query<&Toggles>,
     player: Query<&GlobalTransform, With<Player>>,
     mut camera: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
 ) {
     for mut camera_global_transform in camera.iter_mut() {
-        for player_global_transform in player.iter() {
-            camera_global_transform.translation = player_global_transform.translation()
-                + camera_global_transform.rotation * Vec3::Z * 50.;
-        }
+        let average_player_position = player
+            .iter()
+            .fold(Vec3::ZERO, |sum, transform| sum + transform.translation())
+            / player.iter().count() as f32;
+        camera_global_transform.translation =
+            average_player_position + camera_global_transform.rotation * Vec3::Z * 50.;
     }
 }
 
@@ -58,7 +58,6 @@ fn setup_physics(
     commands
         .spawn()
         .insert(Collider::cuboid(1000.0, 0.1, 1000.0))
-        .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(KillWall)
         .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -10.0, 0.0)));
 
@@ -84,7 +83,8 @@ fn setup_physics(
                 .insert(RigidBody::Dynamic)
                 .insert(Collider::ball(0.5))
                 .insert(Restitution::coefficient(0.7))
-                .insert(ColliderMassProperties::Density(0.01));
+                .insert(ColliderMassProperties::Density(0.01))
+                .insert(GravityScale(10.));
         }
     }
 }
@@ -99,6 +99,9 @@ struct Player {
 }
 
 #[derive(Component)]
+struct Collectable {}
+
+#[derive(Component)]
 struct KillWall;
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -108,10 +111,12 @@ enum AnimationID {
 }
 
 fn kill_player(
+    mut commands: Commands,
     mut collisions: EventReader<CollisionEvent>,
     kill_wall: Query<&KillWall>,
     mut players: Query<(&Player, &mut Transform)>,
 ) {
+    let mut player_count = players.iter().count();
     for collision in collisions.iter() {
         match collision {
             &CollisionEvent::Started(a, b, _) => {
@@ -119,10 +124,42 @@ fn kill_player(
                     for &entity in [a, b].iter() {
                         match players.get_mut(entity) {
                             Ok((player, mut transform)) => {
-                                transform.translation = player.spawn_position
+                                if player_count > 1 {
+                                    commands.entity(entity).remove::<Player>();
+                                    player_count -= 1;
+                                }
+
+                                transform.translation = player.spawn_position;
                             }
                             _ => {}
                         }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn player_collectables(
+    mut commands: Commands,
+    mut collisions: EventReader<CollisionEvent>,
+    players: Query<&Player>,
+    collectables: Query<&GlobalTransform, (With<Collectable>, Without<Player>)>,
+) {
+    for collision in collisions.iter() {
+        match collision {
+            &CollisionEvent::Started(a, b, _) => {
+                if [a, b].iter().any(|&entity| players.contains(entity)) {
+                    for &entity in [a, b].iter() {
+                        match collectables.get(entity) {
+                            Ok(&transform) => {
+                                commands.entity(entity).insert(Player {
+                                    spawn_position: transform.translation(),
+                                });
+                            }
+                            Err(_) => {}
+                        };
                     }
                 }
             }
@@ -140,24 +177,31 @@ fn connect_from_scene(
     mesh_assets: Res<Assets<Mesh>>,
     mut commands: Commands,
 ) {
-    for (_, name, _) in named_entities.iter() {
-        println!("{}", name);
-    }
     let bunnies = named_entities
         .iter()
-        .filter(|&(_, name, _)| name.eq(&Name::new("Puppy")));
-    for (entity, name, transform) in bunnies {
+        .filter(|&(_, name, _)| name.contains("Player"))
+        .collect::<Vec<_>>();
+    let collectables = named_entities
+        .iter()
+        .filter(|&(_, name, _)| name.contains("Collectable"));
+    for (entity, _, transform) in bunnies.clone() {
+        commands.entity(entity).insert(Player {
+            spawn_position: transform.translation,
+        });
+    }
+
+    for (entity, name, _) in collectables.chain(bunnies) {
         println!("{}", name);
         commands
             .entity(entity)
-            .insert(Player {
-                spawn_position: transform.translation,
-            })
             .insert(RigidBody::Dynamic)
             .insert(Velocity { ..default() })
-            .insert(Collider::ball(2.0))
+            .insert(Collider::cylinder(1.0, 2.0))
             .insert(Restitution::coefficient(0.2))
-            .insert(LockedAxes::ROTATION_LOCKED);
+            .insert(LockedAxes::ROTATION_LOCKED)
+            .insert(ActiveEvents::COLLISION_EVENTS)
+            .insert(GravityScale(10.))
+            .insert(Collectable {});
     }
     let level = named_entities_with_children
         .iter()
@@ -185,11 +229,10 @@ fn connect_from_scene(
 }
 
 fn gamepad_system(
-    time: Res<Time>,
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
-    camera: Query<&GlobalTransform, With<GameCamera>>,
-    mut player: Query<&mut Velocity, With<Player>>,
+    camera: Query<&GlobalTransform, With<Camera>>,
+    mut player: Query<(&mut Velocity, &mut Transform), With<Player>>,
 ) {
     for gamepad in gamepads.iter().cloned() {
         let left_stick = Vec3 {
@@ -219,9 +262,23 @@ fn gamepad_system(
             left_stick
         };
 
-        for mut velocity in player.iter_mut() {
-            velocity.linvel.x = camera_relative_input.x * CHARACTER_SPEED;
-            velocity.linvel.z = camera_relative_input.z * CHARACTER_SPEED;
+        for (mut velocity, mut transform) in player.iter_mut() {
+            velocity.linvel = Vec3 {
+                x: camera_relative_input.x * CHARACTER_SPEED,
+                z: camera_relative_input.z * CHARACTER_SPEED,
+                ..velocity.linvel
+            };
+            if camera_relative_input.length() > 0.25 {
+                transform.rotation = Quat::from_axis_angle(
+                    Vec3::Y,
+                    3.14 / 2.
+                        + Vec2 {
+                            x: camera_relative_input.x,
+                            y: camera_relative_input.z,
+                        }
+                        .angle_between(Vec2::X),
+                )
+            }
         }
     }
 }
@@ -297,46 +354,5 @@ fn resize_notificator(
     }
     for e in move_event.get_reader().iter(&move_event) {
         println!("x: {} y: {}", e.position.x, e.position.y);
-    }
-}
-
-fn play_on_load(
-    mut animations: ResMut<Animations>,
-    mut animation_clips: ResMut<Assets<AnimationClip>>,
-    mut players: Query<&mut AnimationPlayer, Added<AnimationPlayer>>,
-) {
-    // HACK - offset animations to start at 0, requires animations to have a keyframe at the 0th frame of their "action" (Blender term)
-    for (animation_id, animation_handle) in animations.clone().iter() {
-        if let Some(animation_clip) = animation_clips.get_mut(&animation_handle) {
-            let existing_animation_clip = animation_clip.clone();
-            let curves_map = existing_animation_clip.curves();
-            let mut new_animation_clip = AnimationClip::default();
-            for (path, curves) in curves_map.iter() {
-                for curve in curves.iter() {
-                    if let Some(first_time) = curve.keyframe_timestamps.first() {
-                        new_animation_clip.add_curve_to_path(
-                            path.clone(),
-                            VariableCurve {
-                                keyframe_timestamps: curve
-                                    .keyframe_timestamps
-                                    .iter()
-                                    .map(|timestamp| timestamp - first_time)
-                                    .collect(),
-                                keyframes: curve.keyframes.clone(),
-                            },
-                        );
-                    }
-                }
-            }
-            animations.insert(
-                animation_id.clone(),
-                animation_clips.set(animation_handle, new_animation_clip),
-            );
-        }
-    }
-
-    // start playing animation
-    for mut player in players.iter_mut() {
-        player.play(animations[&AnimationID::Walk].clone()).repeat();
     }
 }
