@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{ecs::component, prelude::*};
 use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
@@ -16,10 +16,8 @@ fn main() {
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
-        // .add_plugin(RapierDebugRenderPlugin::default())
         .add_system(connect_from_scene)
         .add_system(resize_notificator)
-        // .add_system(play_on_load)
         .add_system(gamepad_system)
         .add_startup_system(setup)
         .add_startup_system(setup_physics)
@@ -27,12 +25,21 @@ fn main() {
         .add_system(kill_player)
         .add_system(follow_cam)
         .add_system(player_collectables)
+        .add_system(party)
         .register_inspectable::<Toggles>()
         .run();
 }
 
 #[derive(Component, Inspectable)]
 struct Toggles {}
+
+fn party(time: Res<Time>, mut party_zone: Query<(&mut Transform, &PartyZone)>) {
+    for (mut transform, party_zone) in party_zone.iter_mut() {
+        let displacement = (time.seconds_since_startup() * 7.).sin().powf(1.).abs() * 1.;
+        print!("Movin!\n {}", displacement);
+        transform.translation = party_zone.bob_position + Vec3::Y * displacement as f32;
+    }
+}
 
 fn follow_cam(
     // toggles: Query<&Toggles>,
@@ -96,6 +103,11 @@ type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
 #[derive(Component)]
 struct Player {
     spawn_position: Vec3,
+}
+
+#[derive(Component)]
+struct PartyZone {
+    bob_position: Vec3,
 }
 
 #[derive(Component)]
@@ -172,7 +184,7 @@ fn player_collectables(
 
 fn connect_from_scene(
     named_entities: Query<(Entity, &Name, &Transform), Added<Name>>,
-    named_entities_with_children: Query<(Entity, &Name, &Children), Added<Name>>,
+    named_entities_with_children: Query<(Entity, &Name, &Children, &Transform), Added<Name>>,
     meshes: Query<&Handle<Mesh>>,
     mesh_assets: Res<Assets<Mesh>>,
     mut commands: Commands,
@@ -205,8 +217,14 @@ fn connect_from_scene(
     }
     let level = named_entities_with_children
         .iter()
-        .filter(|&(_, name, _)| name.eq(&Name::new("Level")));
-    for (entity, name, children) in level {
+        .filter(|&(_, name, _, _)| name.eq(&Name::new("Level")));
+    let party_zone = named_entities_with_children
+        .iter()
+        .filter(|&(_, name, _, _)| name.eq(&Name::new("PartyZone")));
+    let goal = named_entities_with_children
+        .iter()
+        .filter(|&(_, name, _, _)| name.eq(&Name::new("Goal")));
+    for (entity, name, children, _) in level {
         let (child_mesh_entities, _): (Vec<_>, Vec<_>) = children
             .iter()
             .map(|&child| meshes.get(child))
@@ -225,6 +243,37 @@ fn connect_from_scene(
             );
         }
         println!("Level Geometry Found: {}", name);
+    }
+    for (entity, name, children, _) in goal {
+        let (child_mesh_entities, _): (Vec<_>, Vec<_>) = children
+            .iter()
+            .map(|&child| meshes.get(child))
+            .partition(Result::is_ok);
+        let child_mesh_entities: Vec<_> = child_mesh_entities
+            .into_iter()
+            .map(Result::unwrap)
+            .collect();
+        for mesh in child_mesh_entities {
+            commands.entity(entity).insert(
+                Collider::from_bevy_mesh(
+                    mesh_assets.get(mesh).unwrap(),
+                    &ComputedColliderShape::TriMesh,
+                )
+                .unwrap(),
+            );
+        }
+        println!("Goal Geometry Found: {}", name);
+    }
+    for (entity, name, _, transform) in party_zone {
+        commands
+            .entity(entity)
+            .insert(Collider::cuboid(1., 1., 1.))
+            .insert(PartyZone {
+                bob_position: transform.translation,
+            })
+            .insert(RigidBody::KinematicPositionBased);
+            // .insert(Ccd::enabled());
+        println!("Party Zone Geometry Found: {}", name);
     }
 }
 
