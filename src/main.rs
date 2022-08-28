@@ -25,7 +25,20 @@ fn main() {
         .add_system(kill_player)
         .add_system(follow_cam)
         .add_system(player_collectables)
+        .add_system(start_the_party)
         .add_system(party)
+        .add_system(game_over_checker)
+        .insert_resource(GameResources {
+            party_material: StandardMaterial {
+                base_color: Color::Rgba {
+                    red: 0.,
+                    green: 1.,
+                    blue: 0.,
+                    alpha: 1.,
+                },
+                ..default()
+            },
+        })
         .register_inspectable::<Toggles>()
         .run();
 }
@@ -66,6 +79,10 @@ fn setup_physics(
         .spawn()
         .insert(Collider::cuboid(1000.0, 0.1, 1000.0))
         .insert(KillWall)
+        .insert(Friction {
+            coefficient: 0.,
+            ..default()
+        })
         .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -10.0, 0.0)));
 
     // add entities to the world
@@ -90,8 +107,12 @@ fn setup_physics(
                 .insert(RigidBody::Dynamic)
                 .insert(Collider::ball(0.5))
                 .insert(Restitution::coefficient(0.7))
+                .insert(Friction {
+                    coefficient: 0.,
+                    ..default()
+                })
                 .insert(ColliderMassProperties::Density(0.01))
-                .insert(GravityScale(10.));
+                .insert(GravityScale(4.));
         }
     }
 }
@@ -111,6 +132,13 @@ struct PartyZone {
 }
 
 #[derive(Component)]
+struct PartyAnimal {}
+
+struct GameResources {
+    party_material: StandardMaterial,
+}
+
+#[derive(Component)]
 struct Collectable {}
 
 #[derive(Component)]
@@ -126,7 +154,7 @@ fn kill_player(
     mut commands: Commands,
     mut collisions: EventReader<CollisionEvent>,
     kill_wall: Query<&KillWall>,
-    mut players: Query<(&Player, &mut Transform)>,
+    mut players: Query<(&Player, &mut Transform, &mut Velocity)>,
 ) {
     let mut player_count = players.iter().count();
     for collision in collisions.iter() {
@@ -135,13 +163,14 @@ fn kill_player(
                 if [a, b].iter().any(|&entity| kill_wall.contains(entity)) {
                     for &entity in [a, b].iter() {
                         match players.get_mut(entity) {
-                            Ok((player, mut transform)) => {
+                            Ok((player, mut transform, mut velocity)) => {
                                 if player_count > 1 {
                                     commands.entity(entity).remove::<Player>();
                                     player_count -= 1;
                                 }
 
                                 transform.translation = player.spawn_position;
+                                velocity.linvel = Vec3::ZERO;
                             }
                             _ => {}
                         }
@@ -153,11 +182,63 @@ fn kill_player(
     }
 }
 
+fn start_the_party(
+    mut commands: Commands,
+    game_resources: Res<GameResources>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut collisions: EventReader<CollisionEvent>,
+    mut players: Query<&Children, With<Player>>,
+    party_zones: Query<(), With<PartyZone>>,
+    mut material_handles: Query<Entity, With<Handle<StandardMaterial>>>,
+) {
+    for collision in collisions.iter() {
+        match collision {
+            &CollisionEvent::Started(a, b, _) => {
+                if [a, b].iter().any(|&entity| party_zones.contains(entity)) {
+                    for &entity in [a, b].iter() {
+                        match players.get(entity) {
+                            Ok(children) => {
+                                commands
+                                    .entity(entity)
+                                    .remove::<Player>()
+                                    .insert(PartyAnimal {});
+                                for &child in children.iter() {
+                                    match material_handles.get_mut(child) {
+                                        Ok(material_entity) => {
+                                            let party_material = materials.add(game_resources.party_material.clone());
+                                            commands.entity(material_entity).insert(party_material);
+                                        }
+                                        Err(_) => {}
+                                    }
+                                }
+                            }
+                            Err(_) => {}
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn game_over_checker(
+    players: Query<(), With<Player>>,
+    party_animals: Query<(), With<PartyAnimal>>,
+) {
+    if players.iter().count() == 0 {
+        print!("Game Over! Your score is {}", party_animals.iter().count());
+    }
+}
+
 fn player_collectables(
     mut commands: Commands,
     mut collisions: EventReader<CollisionEvent>,
     players: Query<&Player>,
-    collectables: Query<&GlobalTransform, (With<Collectable>, Without<Player>)>,
+    collectables: Query<
+        &GlobalTransform,
+        (With<Collectable>, Without<Player>, Without<PartyAnimal>),
+    >,
 ) {
     for collision in collisions.iter() {
         match collision {
@@ -203,7 +284,6 @@ fn connect_from_scene(
     }
 
     for (entity, name, _) in collectables.chain(bunnies) {
-        println!("{}", name);
         commands
             .entity(entity)
             .insert(RigidBody::Dynamic)
@@ -212,7 +292,11 @@ fn connect_from_scene(
             .insert(Restitution::coefficient(0.2))
             .insert(LockedAxes::ROTATION_LOCKED)
             .insert(ActiveEvents::COLLISION_EVENTS)
-            .insert(GravityScale(10.))
+            .insert(GravityScale(4.))
+            .insert(Friction {
+                coefficient: 0.,
+                ..default()
+            })
             .insert(Collectable {});
     }
     let level = named_entities_with_children
@@ -272,7 +356,7 @@ fn connect_from_scene(
                 bob_position: transform.translation,
             })
             .insert(RigidBody::KinematicPositionBased);
-            // .insert(Ccd::enabled());
+        // .insert(Ccd::enabled());
         println!("Party Zone Geometry Found: {}", name);
     }
 }
@@ -293,6 +377,15 @@ fn gamepad_system(
                 .unwrap(),
             ..default()
         };
+        let right_stick = Vec3 {
+            x: axes
+                .get(GamepadAxis::new(gamepad, GamepadAxisType::RightStickX))
+                .unwrap(),
+            z: -axes
+                .get(GamepadAxis::new(gamepad, GamepadAxisType::RightStickY))
+                .unwrap(),
+            ..default()
+        };
 
         let camera_relative_input = if let Ok(camera_transform) = camera.get_single() {
             let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
@@ -306,9 +399,9 @@ fn gamepad_system(
                     })
                 .angle_between(Vec3::Z),
             );
-            flat_camera_rotation * left_stick
+            flat_camera_rotation * (left_stick + right_stick)
         } else {
-            left_stick
+            left_stick + right_stick
         };
 
         for (mut velocity, mut transform) in player.iter_mut() {
