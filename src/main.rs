@@ -4,8 +4,20 @@ use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum AppState {
+    // MainMenu,
+    InGame,
+    GameOver,
+}
+
 fn main() {
     App::new()
+        .add_state(AppState::InGame)
+        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_game_scene))
+        // .add_system_set(SystemSet::on_update(AppState::InGame).with_system(setup_menu))
+        // cleanup when exiting the state
+        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
         .insert_resource(WindowDescriptor {
             title: "Combine".to_string(),
             width: 805.,
@@ -27,9 +39,10 @@ fn main() {
         .add_system(player_collectables)
         .add_system(start_the_party)
         .add_system(party)
-        .add_system(game_over_checker)
-        .add_startup_system(setup_ui)
+        .add_system(gameover_checker)
+        // .add_startup_system(setup_ui)
         .insert_resource(GameResources {
+            scene_entity: None,
             party_material: StandardMaterial {
                 base_color: Color::Rgba {
                     red: 0.,
@@ -397,8 +410,6 @@ fn setup_physics(
 
 const CHARACTER_SPEED: f32 = 12.;
 
-type Animations = HashMap<AnimationID, Handle<AnimationClip>>;
-
 #[derive(Component)]
 struct Player {
     spawn_position: Vec3,
@@ -414,6 +425,7 @@ struct PartyAnimal {}
 
 struct GameResources {
     party_material: StandardMaterial,
+    scene_entity: Option<Entity>,
 }
 
 #[derive(Component)]
@@ -421,12 +433,6 @@ struct Collectable {}
 
 #[derive(Component)]
 struct KillWall;
-
-#[derive(Clone, Eq, PartialEq, Hash)]
-enum AnimationID {
-    Idle,
-    Walk,
-}
 
 fn kill_player(
     mut commands: Commands,
@@ -501,10 +507,7 @@ fn start_the_party(
     }
 }
 
-fn game_over_checker(
-    players: Query<(), With<Player>>,
-    party_animals: Query<(), With<PartyAnimal>>,
-) {
+fn gameover_checker(players: Query<(), With<Player>>, party_animals: Query<(), With<PartyAnimal>>) {
     if players.iter().count() == 0 {
         print!("Game Over! Your score is {}", party_animals.iter().count());
     }
@@ -705,30 +708,41 @@ fn gamepad_system(
     }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn setup_game_scene(
+    mut game_resources: ResMut<GameResources>,
+    mut commands: Commands,
+    asset_server: ResMut<AssetServer>,
+) {
+    // load scene
+    game_resources.scene_entity = Some(
+        commands
+            .spawn_bundle(SceneBundle {
+                scene: asset_server.load("animals.gltf#Scene0"),
+                ..default()
+            })
+            .id());
+}
+
+fn cleanup_game_scene(mut game_resources: ResMut<GameResources>, mut commands: Commands) {
+    match game_resources.scene_entity {
+        Some(scene_entity) => {
+            commands.entity(scene_entity).despawn_recursive();
+            game_resources.scene_entity = None;
+        }
+        None => {}
+    }
+}
+
+fn setup(
+    mut game_resources: Res<GameResources>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
     commands
         .spawn()
         .insert(Toggles {})
         .insert(Name::new("Toggles"));
     asset_server.watch_for_changes().unwrap();
-
-    // load scene
-    commands.spawn_bundle(SceneBundle {
-        scene: asset_server.load("animals.gltf#Scene0"),
-        ..default()
-    });
-
-    // load animations
-    commands.insert_resource(Animations::from_iter([
-        (
-            AnimationID::Idle,
-            asset_server.load("animals.gltf#Animation0") as Handle<AnimationClip>,
-        ),
-        (
-            AnimationID::Walk,
-            asset_server.load("animals.gltf#Animation1") as Handle<AnimationClip>,
-        ),
-    ]));
 
     commands.spawn_bundle(DirectionalLightBundle {
         transform: Transform {
@@ -736,31 +750,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..Default::default()
         },
         directional_light: DirectionalLight {
-            ..Default::default()
-        },
-        ..Default::default()
-    });
-
-    commands.spawn_bundle(PointLightBundle {
-        transform: Transform {
-            translation: Vec3 {
-                x: 0.,
-                y: -10.,
-                z: 0.,
-            },
-            rotation: Quat::from_euler(EulerRot::XYZ, 45., 0., 0.),
-            ..Default::default()
-        },
-        point_light: PointLight {
-            color: Color::Rgba {
-                red: 0.,
-                green: 1.,
-                blue: 0.,
-                alpha: 1.,
-            },
-            range: 50.,
-            radius: 10.,
-            intensity: 3000.,
             ..Default::default()
         },
         ..Default::default()
