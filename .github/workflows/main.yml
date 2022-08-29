@@ -2,13 +2,12 @@ name: CI
 
 on:
   push:
-    branches: ['main']
-  pull_request:
-    branches: ['main']
+    tags:
+      - '*'
 
 env:
   # update with the name of the main binary
-  binary: game
+  binary: animal-aggregator
 
 
 jobs:
@@ -23,15 +22,17 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           target: wasm32-unknown-unknown
           override: true
       - name: install wasm-bindgen-cli
         run: |
           cargo install wasm-bindgen-cli
+
       - name: Build
         run: |
           cargo build --release --target wasm32-unknown-unknown
+
       - name: Prepare package
         run: |
           wasm-bindgen --no-typescript --out-name bevy_game --out-dir wasm --target web target/wasm32-unknown-unknown/release/${{ env.binary }}.wasm
@@ -47,7 +48,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ env.binary }}.zip
-          asset_name: ${{ env.binary }}-wasm-${{ steps.get_version.outputs.tag }}.zip
+          asset_name: ${{ env.binary }}-wasm.zip
           tag: ${{ github.ref }}
           overwrite: true
 
@@ -61,32 +62,32 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           target: x86_64-unknown-linux-gnu
           override: true
       - name: install dependencies
         run: |
           sudo apt-get update; sudo apt-get install pkg-config libx11-dev libasound2-dev libudev-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
       - name: Build
         run: |
           cargo build --release --target x86_64-unknown-linux-gnu
+
       - name: Prepare package
         run: |
           mkdir linux
           cp target/x86_64-unknown-linux-gnu/release/${{ env.binary }} linux/
           cp -r assets linux/
       - name: Package as a zip
-        uses: vimtor/action-zip@v1
-        with:
-          files: linux
-          dest: ${{ env.binary }}.zip
+        run: |
+          tar -zcvf ${{ env.binary }}.tar.gz linux
 
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ env.binary }}.zip
-          asset_name: ${{ env.binary }}-linux-${{ steps.get_version.outputs.tag }}.zip
+          file: ${{ env.binary }}.tar.gz
+          asset_name: ${{ env.binary }}-linux.tar.gz
           tag: ${{ github.ref }}
           overwrite: true
 
@@ -100,13 +101,14 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           target: x86_64-pc-windows-msvc
           override: true
 
       - name: Build
         run: |
           cargo build --release --target x86_64-pc-windows-msvc
+
       - name: Prepare package
         run: |
           mkdir windows
@@ -123,7 +125,7 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ env.binary }}.zip
-          asset_name: ${{ env.binary }}-windows-${{ steps.get_version.outputs.tag }}.zip
+          asset_name: ${{ env.binary }}-windows.zip
           tag: ${{ github.ref }}
           overwrite: true
 
@@ -137,27 +139,74 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           target: x86_64-apple-darwin
           override: true
       - name: Environment Setup
         run: |
           export CFLAGS="-fno-stack-check"
           export MACOSX_DEPLOYMENT_TARGET="10.9"
+
       - name: Build
         run: |
           cargo build --release --target x86_64-apple-darwin
+
       - name: Prepare Package
         run: |
-          mkdir -p ${{ env.binary }}.app/Contents/MacOS
-          cp target/x86_64-apple-darwin/release/${{ env.binary }} ${{ env.binary }}.app/Contents/MacOS/
-          cp -r assets ${{ env.binary }}.app/Contents/MacOS/
-          hdiutil create -fs HFS+ -volname "${{ env.binary }}" -srcfolder ${{ env.binary }}.app ${{ env.binary }}.dmg
+          mkdir -p macintel
+          cp target/x86_64-apple-darwin/release/${{ env.binary }} macintel/
+          cp -r assets macintel
+
+      - name: Package as a zip
+        run: |
+          tar -zcvf ${{ env.binary }}.tar.gz macintel
+
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ env.binary }}.dmg
-          asset_name: ${{ env.binary }}-macos-${{ steps.get_version.outputs.tag }}.dmg
+          file: ${{ env.binary }}.tar.gz
+          asset_name: ${{ env.binary }}-macos.tar.gz
+          tag: ${{ github.ref }}
+          overwrite: true
+
+  # Build for macOS M1
+  release-macos-m1:
+    runs-on: macOS-latest
+
+    steps:
+      - uses: little-core-labs/get-git-tag@v3.0.1
+        id: get_version
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          target: aarch64-apple-darwin
+          override: true
+      - name: Environment Setup
+        run: |
+          export CFLAGS="-fno-stack-check"
+          export MACOSX_DEPLOYMENT_TARGET="10.9"
+
+      - name: Build
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+
+      - name: Prepare Package
+        run: |
+          mkdir -p macsilicon
+          cp target/aarch64-apple-darwin/release/${{ env.binary }} macsilicon
+          cp -r assets macsilicon
+
+      - name: Package as a zip
+        run: |
+          tar -zcvf ${{ env.binary }}.tar.gz macsilicon
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ env.binary }}.tar.gz
+          asset_name: ${{ env.binary }}-macos-m1.tar.gz
           tag: ${{ github.ref }}
           overwrite: true

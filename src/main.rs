@@ -16,6 +16,7 @@ fn main() {
         .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(setup_game_scene))
         .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_ui))
         .add_system_set(SystemSet::on_enter(AppState::GameOver).with_system(setup_ui))
+        // .add_system_set(SystemSet::on_update(AppState::GameOver).with_system(any_key_to_restart))
         // .add_system_set(SystemSet::on_update(AppState::InGame).with_system(setup_menu))
         // .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
         .insert_resource(WindowDescriptor {

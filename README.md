@@ -21,13 +21,11 @@ Fast iteration
 
 # Game Loop
 
-Play level
-Last animal reaches goal
-Display final score and 3 star rating
-Option to restart level or continue
-Next level ...
-Finish all levels
-Game over! Thanks for playing! Final time, total stars earned, A-F ranking
+✅ Play level
+✅ Last animal reaches goal
+✅ Game over! Thanks for playing! Final time, total stars earned, A-F ranking
+⬜ Press any button to restart
+⬜ Keyboard controls
 
 # TODO
     Modelling
