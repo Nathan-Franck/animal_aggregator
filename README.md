@@ -2,6 +2,8 @@
 
 Collect all the animals and bring them home!
 
+![Blender render (not actual in-game footage)](art/render.png)
+
 # Theme - Combine
 
 Emulate cherry powerup in Mario ---
