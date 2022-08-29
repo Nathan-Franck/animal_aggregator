@@ -54,16 +54,26 @@ fn main() {
                 ..default()
             },
             ui_node: None,
+            despawned_party_animals_count: 0,
         })
         // .register_inspectable::<Toggles>()
         .run();
 }
 
 fn any_key_to_restart(
+    mut commands: Commands,
+    mut game_resources: ResMut<GameResources>,
     mut app_state: ResMut<State<AppState>>,
     buttons: Res<Input<GamepadButton>>,
 ) {
     if buttons.get_pressed().count() > 0 {
+        match game_resources.scene_entity {
+            Some(entity) => {
+                commands.entity(entity).despawn_recursive();
+            }
+            _ => {}
+        }
+        game_resources.despawned_party_animals_count = 0;
         app_state.set(AppState::MainMenu).unwrap();
     }
 }
@@ -118,8 +128,8 @@ fn setup_ui(
                                 }
                                 &AppState::GameOver => format!(
                                     "Congrats! You got {} out of a possible {} animals to the exit! Press any key/button for bonus animal stage :)",
-                                    party_animals.iter().count(),
-                                    collectables.iter().count()),
+                                    party_animals.iter().count() as i32 + game_resources.despawned_party_animals_count,
+                                    collectables.iter().count() as i32 + game_resources.despawned_party_animals_count),
                                 &AppState::MainMenu => "Press any button to start!".to_string(),
                             },
                             TextStyle {
@@ -235,6 +245,7 @@ struct GameResources {
     party_material: StandardMaterial,
     scene_entity: Option<Entity>,
     ui_node: Option<Entity>,
+    despawned_party_animals_count: i32,
 }
 
 #[derive(Component)]
@@ -277,13 +288,16 @@ fn kill_player(
 
 fn start_the_party(
     mut commands: Commands,
-    game_resources: Res<GameResources>,
+    mut game_resources: ResMut<GameResources>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut collisions: EventReader<CollisionEvent>,
     players: Query<&Children, With<Player>>,
     party_zones: Query<(), With<PartyZone>>,
     mut material_handles: Query<Entity, With<Handle<StandardMaterial>>>,
+    party_animals: Query<Entity, With<PartyAnimal>>,
 ) {
+    let mut party_count = party_animals.iter().count();
+    let mut party_iter = party_animals.iter();
     for collision in collisions.iter() {
         match collision {
             &CollisionEvent::Started(a, b, _) => {
@@ -291,6 +305,17 @@ fn start_the_party(
                     for &entity in [a, b].iter() {
                         match players.get(entity) {
                             Ok(children) => {
+                                if party_count > 10 {
+                                    match party_iter.next() {
+                                        Some(entity) => {
+                                            commands.entity(entity).despawn_recursive();
+                                        }
+                                        _ => {}
+                                    }
+                                    party_count -= 1;
+                                    print!("Despawned count {}", game_resources.despawned_party_animals_count);
+                                    game_resources.despawned_party_animals_count += 1;
+                                }
                                 commands
                                     .entity(entity)
                                     .remove::<Player>()
@@ -318,12 +343,15 @@ fn start_the_party(
 
 fn gameover_checker(
     mut app_state: ResMut<State<AppState>>,
+    game_resources: Res<GameResources>,
     players: Query<(), With<Player>>,
     party_animals: Query<(), With<PartyAnimal>>,
 ) {
     if app_state.current() == &AppState::InGame {
         if players.iter().count() == 0 {
-            print!("Game Over! Your score is {}", party_animals.iter().count());
+            let score_total =
+                party_animals.iter().count() as i32 + game_resources.despawned_party_animals_count;
+            print!("Game Over! Your score is {}", score_total);
             app_state.set(AppState::GameOver).unwrap();
         }
     }
