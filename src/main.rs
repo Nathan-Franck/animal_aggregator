@@ -61,7 +61,7 @@ fn any_key_to_restart(
     buttons: Res<Input<GamepadButton>>,
     keys: Res<Input<KeyCode>>,
 ) {
-    if buttons.get_pressed().count() > 0 || keys.get_pressed().count() > 0 {
+    if buttons.get_just_pressed().count() > 0 || keys.get_just_pressed().count() > 0 {
         match game_resources.scene_entity {
             Some(entity) => {
                 commands.entity(entity).despawn_recursive();
