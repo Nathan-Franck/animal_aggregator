@@ -1,4 +1,6 @@
-use bevy::prelude::*;
+use std::os::linux::raw;
+
+use bevy::{input::keyboard::KeyboardInput, prelude::*};
 use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
@@ -21,9 +23,9 @@ fn main() {
         // .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
         .insert_resource(WindowDescriptor {
             title: "Combine".to_string(),
-            width: 672.,
-            height: 990.,
-            position: WindowPosition::At(Vec2 { x: 16., y: 36. }),
+            width: 800.,
+            height: 600.,
+            // position: WindowPosition::At(Vec2 { x: 16., y: 36. }),
             present_mode: bevy::window::PresentMode::AutoVsync,
             ..default()
         })
@@ -65,8 +67,9 @@ fn any_key_to_restart(
     mut game_resources: ResMut<GameResources>,
     mut app_state: ResMut<State<AppState>>,
     buttons: Res<Input<GamepadButton>>,
+    keys: Res<Input<KeyCode>>,
 ) {
-    if buttons.get_pressed().count() > 0 {
+    if buttons.get_pressed().count() > 0 || keys.get_pressed().count() > 0 {
         match game_resources.scene_entity {
             Some(entity) => {
                 commands.entity(entity).despawn_recursive();
@@ -126,10 +129,19 @@ fn setup_ui(
                                 &AppState::InGame => {
                                     "Combine your animal herd and take them to the exit!".to_string()
                                 }
-                                &AppState::GameOver => format!(
-                                    "Congrats! You got {} out of a possible {} animals to the exit! Press any key/button for bonus animal stage :)",
-                                    party_animals.iter().count() as i32 + game_resources.despawned_party_animals_count,
-                                    collectables.iter().count() as i32 + game_resources.despawned_party_animals_count),
+                                &AppState::GameOver => {
+                                    let party_total = party_animals.iter().count() as i32 + game_resources.despawned_party_animals_count;
+                                    let potential_total = collectables.iter().count() as i32 + game_resources.despawned_party_animals_count;
+                                    if party_total == potential_total - 1 { // 1 animal missing? Close enough :/
+                                        "WOW! You got all the animals! You win the game for sure! Press any key/button to try again :)".to_string()
+                                    } else {
+                                        format!(
+                                            "Congrats! You got {} out of a possible {} animals to the exit! Press any key/button to try again :)",
+                                            party_total,
+                                            potential_total)
+                                    }
+                                        
+                                },
                                 &AppState::MainMenu => "Press any button to start!".to_string(),
                             },
                             TextStyle {
@@ -313,7 +325,10 @@ fn start_the_party(
                                         _ => {}
                                     }
                                     party_count -= 1;
-                                    print!("Despawned count {}", game_resources.despawned_party_animals_count);
+                                    print!(
+                                        "Despawned count {}",
+                                        game_resources.despawned_party_animals_count
+                                    );
                                     game_resources.despawned_party_animals_count += 1;
                                 }
                                 commands
@@ -491,11 +506,26 @@ fn connect_from_scene(
 fn gamepad_system(
     gamepads: Res<Gamepads>,
     axes: Res<Axis<GamepadAxis>>,
+    keys: Res<Input<KeyCode>>,
     camera: Query<&GlobalTransform, With<Camera>>,
     mut player: Query<(&mut Velocity, &mut Transform), With<Player>>,
 ) {
+    let mut raw_input = Vec3 {
+        z: if keys.pressed(KeyCode::Up) { -1. } else { 0. }
+            + if keys.pressed(KeyCode::Down) { 1. } else { 0. },
+        x: if keys.pressed(KeyCode::Left) { -1. } else { 0. }
+            + if keys.pressed(KeyCode::Right) { 1. } else { 0. },
+        ..default()
+    };
+    raw_input += Vec3 {
+        z: if keys.pressed(KeyCode::W) { -1. } else { 0. }
+            + if keys.pressed(KeyCode::S) { 1. } else { 0. },
+        x: if keys.pressed(KeyCode::A) { -1. } else { 0. }
+            + if keys.pressed(KeyCode::D) { 1. } else { 0. },
+        ..default()
+    };
     for gamepad in gamepads.iter().cloned() {
-        let left_stick = Vec3 {
+        raw_input += Vec3 {
             x: axes
                 .get(GamepadAxis::new(gamepad, GamepadAxisType::LeftStickX))
                 .unwrap(),
@@ -504,7 +534,7 @@ fn gamepad_system(
                 .unwrap(),
             ..default()
         };
-        let right_stick = Vec3 {
+        raw_input += Vec3 {
             x: axes
                 .get(GamepadAxis::new(gamepad, GamepadAxisType::RightStickX))
                 .unwrap(),
@@ -513,41 +543,45 @@ fn gamepad_system(
                 .unwrap(),
             ..default()
         };
+    }
 
-        let camera_relative_input = if let Ok(camera_transform) = camera.get_single() {
-            let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
-            let flat_camera_rotation = Quat::from_axis_angle(
-                Vec3::Y,
-                ((camera_rotation * Vec3::Z)
-                    * Vec3 {
-                        x: 1.,
-                        y: 0.,
-                        z: 1.,
-                    })
-                .angle_between(Vec3::Z),
-            );
-            flat_camera_rotation * (left_stick + right_stick)
-        } else {
-            left_stick + right_stick
+    if raw_input.length() > 0. {
+        raw_input = raw_input.normalize() * (raw_input.length() - 0.05).max(0.) / 0.95;
+    }
+
+    let camera_relative_input = if let Ok(camera_transform) = camera.get_single() {
+        let (_, camera_rotation, _) = camera_transform.to_scale_rotation_translation();
+        let flat_camera_rotation = Quat::from_axis_angle(
+            Vec3::Y,
+            ((camera_rotation * Vec3::Z)
+                * Vec3 {
+                    x: 1.,
+                    y: 0.,
+                    z: 1.,
+                })
+            .angle_between(Vec3::Z),
+        );
+        flat_camera_rotation * raw_input
+    } else {
+       raw_input 
+    };
+
+    for (mut velocity, mut transform) in player.iter_mut() {
+        velocity.linvel = Vec3 {
+            x: camera_relative_input.x * CHARACTER_SPEED,
+            z: camera_relative_input.z * CHARACTER_SPEED,
+            ..velocity.linvel
         };
-
-        for (mut velocity, mut transform) in player.iter_mut() {
-            velocity.linvel = Vec3 {
-                x: camera_relative_input.x * CHARACTER_SPEED,
-                z: camera_relative_input.z * CHARACTER_SPEED,
-                ..velocity.linvel
-            };
-            if camera_relative_input.length() > 0.25 {
-                transform.rotation = Quat::from_axis_angle(
-                    Vec3::Y,
-                    3.14 / 2.
-                        + Vec2 {
-                            x: camera_relative_input.x,
-                            y: camera_relative_input.z,
-                        }
-                        .angle_between(Vec2::X),
-                )
-            }
+        if camera_relative_input.length() > 0.25 {
+            transform.rotation = Quat::from_axis_angle(
+                Vec3::Y,
+                3.14 / 2.
+                    + Vec2 {
+                        x: camera_relative_input.x,
+                        y: camera_relative_input.z,
+                    }
+                    .angle_between(Vec2::X),
+            )
         }
     }
 }
@@ -568,19 +602,8 @@ fn setup_game_scene(
     );
 }
 
-fn cleanup_game_scene(mut game_resources: ResMut<GameResources>, mut commands: Commands) {
-    match game_resources.scene_entity {
-        Some(scene_entity) => {
-            commands.entity(scene_entity).despawn_recursive();
-            game_resources.scene_entity = None;
-        }
-        None => {}
-    }
-}
-
 fn setup(
-    mut game_resources: Res<GameResources>,
-    mut commands: Commands,
+    mut game_resources: Res<GameResources>,mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
     asset_server.watch_for_changes().unwrap();
