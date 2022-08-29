@@ -4,15 +4,17 @@ Collect all the animals and bring them home!
 
 ![Blender render (not actual in-game footage)](art/render.png)
 
-# Theme - Combine
+# Gameplay
 
-Emulate cherry powerup in Mario ---
+🎮 Plays best on controller! 🎮
 
-Start controlling a single animal, when you tag other animals you control them as well (naively).
+A super simple sandbox play-tested on a 20 month old toddler. She loves it. I'm sure you will too.
 
-Objective is to get animals to a goal.
+You start as a dog with a special ability to control any animal you touch! Combine Kitties and Bunnies into a mad herd of mischief. Don't worry if they fall, they'll come back.
 
-Challange from figuring out which animals to collect first and avoid pitfalls.
+Special message for those that collect all the animals :)
+
+(This was a project done around a busy family, and a first-time project with Bevy / Rust. I'm just happy it's done :)
 
 # Development
 
@@ -20,33 +22,3 @@ Fast iteration
 * Run `cargo watch -x 'run'` to watch for asset changes
 * Export .gltf file from Blender using custom keyboard shortcut (right-click on export option)
 * Attach extra behaviours to existing scene elements, make use of labels in blender to dictate behaviour from blender files.
-
-# Game Loop
-
-✅ Play level
-✅ Last animal reaches goal
-✅ Game over! Thanks for playing! Final time, total stars earned, A-F ranking
-⬜ Press any button to restart
-⬜ Keyboard controls
-
-# TODO
-    Modelling
-        Animals
-            Kitty
-            Bunny
-            Puppy
-            Bird
-        Animations
-            Idle
-            Run
-            Slide
-            Climb
-
-    World Elements
-        Flower
-        Rock
-        Butterfly
-
-    Gameplay
-        Slide
-        Ladder
