@@ -117,7 +117,7 @@ fn setup_ui(
                                     "Combine your animal herd and take them to the exit!".to_string()
                                 }
                                 &AppState::GameOver => format!(
-                                    "Congrats! You got {} out of a possible {} animals to the exit! Thanks for playing :)",
+                                    "Congrats! You got {} out of a possible {} animals to the exit! Press any key/button for bonus animal stage :)",
                                     party_animals.iter().count(),
                                     collectables.iter().count()),
                                 &AppState::MainMenu => "Press any button to start!".to_string(),
