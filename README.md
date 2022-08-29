@@ -19,6 +19,16 @@ Fast iteration
 * Export .gltf file from Blender using custom keyboard shortcut (right-click on export option)
 * Attach extra behaviours to existing scene elements, make use of labels in blender to dictate behaviour from blender files.
 
+# Game Loop
+
+Play level
+Last animal reaches goal
+Display final score and 3 star rating
+Option to restart level or continue
+Next level ...
+Finish all levels
+Game over! Thanks for playing! Final time, total stars earned, A-F ranking
+
 # TODO
     Modelling
         Animals

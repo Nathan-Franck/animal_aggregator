@@ -2,27 +2,27 @@ use bevy::prelude::*;
 use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
 use bevy_rapier3d::prelude::*;
 use rand::prelude::random;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum AppState {
-    // MainMenu,
+    MainMenu,
     InGame,
     GameOver,
 }
 
 fn main() {
     App::new()
-        .add_state(AppState::InGame)
-        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_game_scene))
+        .add_state(AppState::MainMenu)
+        .add_system_set(SystemSet::on_enter(AppState::MainMenu).with_system(setup_game_scene))
+        .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_ui))
+        .add_system_set(SystemSet::on_enter(AppState::GameOver).with_system(setup_ui))
         // .add_system_set(SystemSet::on_update(AppState::InGame).with_system(setup_menu))
-        // cleanup when exiting the state
-        .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
+        // .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
         .insert_resource(WindowDescriptor {
             title: "Combine".to_string(),
-            width: 805.,
-            height: 430.,
-            position: WindowPosition::At(Vec2 { x: 67., y: 603. }),
+            width: 672.,
+            height: 990.,
+            position: WindowPosition::At(Vec2 { x: 16., y: 36. }),
             present_mode: bevy::window::PresentMode::AutoVsync,
             ..default()
         })
@@ -40,7 +40,7 @@ fn main() {
         .add_system(start_the_party)
         .add_system(party)
         .add_system(gameover_checker)
-        // .add_startup_system(setup_ui)
+        .add_startup_system(setup_ui)
         .insert_resource(GameResources {
             scene_entity: None,
             party_material: StandardMaterial {
@@ -52,16 +52,27 @@ fn main() {
                 },
                 ..default()
             },
+            ui_node: None,
         })
         // .register_inspectable::<Toggles>()
         .run();
 }
 
-#[derive(Component, Inspectable)]
-struct Toggles {}
-
-fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
+fn setup_ui(
+    app_state: ResMut<State<AppState>>,
+    mut game_resources: ResMut<GameResources>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    party_animals: Query<(), With<PartyAnimal>>,
+    collectables: Query<(), With<Collectable>>,
+) {
+    match game_resources.ui_node {
+        Some(entity) => {
+            commands.entity(entity).despawn_recursive();
+        }
+        None => {}
+    }
+    game_resources.ui_node = Some(commands
         .spawn_bundle(NodeBundle {
             style: Style {
                 size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
@@ -76,265 +87,46 @@ fn setup_ui(mut commands: Commands, asset_server: Res<AssetServer>) {
             parent
                 .spawn_bundle(NodeBundle {
                     style: Style {
-                        size: Size::new(Val::Px(200.0), Val::Percent(100.0)),
+                        size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
                         border: UiRect::all(Val::Px(2.0)),
-                        ..default()
-                    },
-                    color: Color::rgb(0.65, 0.65, 0.65).into(),
-                    ..default()
-                })
-                .with_children(|parent| {
-                    // left vertical fill (content)
-                    parent
-                        .spawn_bundle(NodeBundle {
-                            style: Style {
-                                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                                align_items: AlignItems::Center,
-                                ..default()
-                            },
-                            color: Color::rgb(0.15, 0.15, 0.15).into(),
-                            ..default()
-                        })
-                        .with_children(|parent| {
-                            // text
-                            parent.spawn_bundle(
-                                TextBundle::from_section(
-                                    "Collect All The Animals!",
-                                    TextStyle {
-                                        font: asset_server.load("FredokaOne-Regular.ttf"),
-                                        font_size: 30.0,
-                                        color: Color::WHITE,
-                                    },
-                                )
-                                .with_style(Style {
-                                    margin: UiRect::all(Val::Px(5.0)),
-                                    ..default()
-                                }),
-                            );
-                        });
-                });
-            // right vertical fill
-            parent
-                .spawn_bundle(NodeBundle {
-                    style: Style {
-                        flex_direction: FlexDirection::ColumnReverse,
+                        align_items: match app_state.current() {
+                            &AppState::InGame => AlignItems::FlexStart,
+                            _ => AlignItems::Center,
+                        },
                         justify_content: JustifyContent::Center,
-                        size: Size::new(Val::Px(200.0), Val::Percent(100.0)),
                         ..default()
                     },
-                    color: Color::rgb(0.15, 0.15, 0.15).into(),
+                    color: Color::rgba(0., 0., 0., 0.).into(),
                     ..default()
                 })
                 .with_children(|parent| {
-                    // Title
                     parent.spawn_bundle(
                         TextBundle::from_section(
-                            "Scrolling list",
+                            match app_state.current() {
+                                &AppState::InGame => {
+                                    "Combine your animal herd and take them to the exit!".to_string()
+                                }
+                                &AppState::GameOver => format!(
+                                    "Congrats! You got {} out of a possible {} animals to the exit! Thanks for playing :)",
+                                    party_animals.iter().count(),
+                                    collectables.iter().count()),
+                                &AppState::MainMenu => "Press any button to start!".to_string(),
+                            },
                             TextStyle {
                                 font: asset_server.load("FredokaOne-Regular.ttf"),
-                                font_size: 25.,
+                                font_size: 30.0,
                                 color: Color::WHITE,
                             },
                         )
                         .with_style(Style {
-                            size: Size::new(Val::Undefined, Val::Px(25.)),
-                            margin: UiRect {
-                                left: Val::Auto,
-                                right: Val::Auto,
-                                ..default()
-                            },
+                            margin: UiRect::all(Val::Px(5.0)),
                             ..default()
                         }),
                     );
-                    // List with hidden overflow
-                    parent
-                        .spawn_bundle(NodeBundle {
-                            style: Style {
-                                flex_direction: FlexDirection::ColumnReverse,
-                                align_self: AlignSelf::Center,
-                                size: Size::new(Val::Percent(100.0), Val::Percent(50.0)),
-                                overflow: Overflow::Hidden,
-                                ..default()
-                            },
-                            color: Color::rgb(0.10, 0.10, 0.10).into(),
-                            ..default()
-                        })
-                        .with_children(|parent| {
-                            // Moving panel
-                            parent
-                                .spawn_bundle(NodeBundle {
-                                    style: Style {
-                                        flex_direction: FlexDirection::ColumnReverse,
-                                        flex_grow: 1.0,
-                                        max_size: Size::new(Val::Undefined, Val::Undefined),
-                                        ..default()
-                                    },
-                                    color: Color::NONE.into(),
-                                    ..default()
-                                })
-                                .with_children(|parent| {
-                                    // List items
-                                    for i in 0..30 {
-                                        parent.spawn_bundle(
-                                            TextBundle::from_section(
-                                                format!("Item {i}"),
-                                                TextStyle {
-                                                    font: asset_server
-                                                        .load("FredokaOne-Regular.ttf"),
-                                                    font_size: 20.,
-                                                    color: Color::WHITE,
-                                                },
-                                            )
-                                            .with_style(Style {
-                                                flex_shrink: 0.,
-                                                size: Size::new(Val::Undefined, Val::Px(20.)),
-                                                margin: UiRect {
-                                                    left: Val::Auto,
-                                                    right: Val::Auto,
-                                                    ..default()
-                                                },
-                                                ..default()
-                                            }),
-                                        );
-                                    }
-                                });
-                        });
+                    // });
                 });
-            // absolute positioning
-            parent
-                .spawn_bundle(NodeBundle {
-                    style: Style {
-                        size: Size::new(Val::Px(200.0), Val::Px(200.0)),
-                        position_type: PositionType::Absolute,
-                        position: UiRect {
-                            left: Val::Px(210.0),
-                            bottom: Val::Px(10.0),
-                            ..default()
-                        },
-                        border: UiRect::all(Val::Px(20.0)),
-                        ..default()
-                    },
-                    color: Color::rgb(0.4, 0.4, 1.0).into(),
-                    ..default()
-                })
-                .with_children(|parent| {
-                    parent.spawn_bundle(NodeBundle {
-                        style: Style {
-                            size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                            ..default()
-                        },
-                        color: Color::rgb(0.8, 0.8, 1.0).into(),
-                        ..default()
-                    });
-                });
-            // render order test: reddest in the back, whitest in the front (flex center)
-            parent
-                .spawn_bundle(NodeBundle {
-                    style: Style {
-                        size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                        position_type: PositionType::Absolute,
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
-                    color: Color::NONE.into(),
-                    ..default()
-                })
-                .with_children(|parent| {
-                    parent
-                        .spawn_bundle(NodeBundle {
-                            style: Style {
-                                size: Size::new(Val::Px(100.0), Val::Px(100.0)),
-                                ..default()
-                            },
-                            color: Color::rgb(1.0, 0.0, 0.0).into(),
-                            ..default()
-                        })
-                        .with_children(|parent| {
-                            parent.spawn_bundle(NodeBundle {
-                                style: Style {
-                                    size: Size::new(Val::Px(100.0), Val::Px(100.0)),
-                                    position_type: PositionType::Absolute,
-                                    position: UiRect {
-                                        left: Val::Px(20.0),
-                                        bottom: Val::Px(20.0),
-                                        ..default()
-                                    },
-                                    ..default()
-                                },
-                                color: Color::rgb(1.0, 0.3, 0.3).into(),
-                                ..default()
-                            });
-                            parent.spawn_bundle(NodeBundle {
-                                style: Style {
-                                    size: Size::new(Val::Px(100.0), Val::Px(100.0)),
-                                    position_type: PositionType::Absolute,
-                                    position: UiRect {
-                                        left: Val::Px(40.0),
-                                        bottom: Val::Px(40.0),
-                                        ..default()
-                                    },
-                                    ..default()
-                                },
-                                color: Color::rgb(1.0, 0.5, 0.5).into(),
-                                ..default()
-                            });
-                            parent.spawn_bundle(NodeBundle {
-                                style: Style {
-                                    size: Size::new(Val::Px(100.0), Val::Px(100.0)),
-                                    position_type: PositionType::Absolute,
-                                    position: UiRect {
-                                        left: Val::Px(60.0),
-                                        bottom: Val::Px(60.0),
-                                        ..default()
-                                    },
-                                    ..default()
-                                },
-                                color: Color::rgb(1.0, 0.7, 0.7).into(),
-                                ..default()
-                            });
-                            // alpha test
-                            parent.spawn_bundle(NodeBundle {
-                                style: Style {
-                                    size: Size::new(Val::Px(100.0), Val::Px(100.0)),
-                                    position_type: PositionType::Absolute,
-                                    position: UiRect {
-                                        left: Val::Px(80.0),
-                                        bottom: Val::Px(80.0),
-                                        ..default()
-                                    },
-                                    ..default()
-                                },
-                                color: Color::rgba(1.0, 0.9, 0.9, 0.4).into(),
-                                ..default()
-                            });
-                        });
-                });
-            // bevy logo (flex center)
-            parent
-                .spawn_bundle(NodeBundle {
-                    style: Style {
-                        size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                        position_type: PositionType::Absolute,
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::FlexEnd,
-                        ..default()
-                    },
-                    color: Color::NONE.into(),
-                    ..default()
-                })
-                .with_children(|parent| {
-                    // bevy logo (image)
-                    parent.spawn_bundle(ImageBundle {
-                        style: Style {
-                            size: Size::new(Val::Px(500.0), Val::Auto),
-                            ..default()
-                        },
-                        image: asset_server.load("branding/bevy_logo_dark_big.png").into(),
-                        ..default()
-                    });
-                });
-        });
+        })
+        .id());
 }
 
 fn party(time: Res<Time>, mut party_zone: Query<(&mut Transform, &PartyZone)>) {
@@ -346,17 +138,25 @@ fn party(time: Res<Time>, mut party_zone: Query<(&mut Transform, &PartyZone)>) {
 }
 
 fn follow_cam(
-    // toggles: Query<&Toggles>,
-    player: Query<&GlobalTransform, With<Player>>,
+    mut commands: Commands,
+    player: Query<(Entity, &GlobalTransform, &Transform), With<Player>>,
     mut camera: Query<&mut Transform, (With<Camera3d>, Without<Player>)>,
 ) {
     for mut camera_global_transform in camera.iter_mut() {
-        let average_player_position = player
-            .iter()
-            .fold(Vec3::ZERO, |sum, transform| sum + transform.translation())
-            / player.iter().count() as f32;
+        let average_player_position = player.iter().fold(Vec3::ZERO, |sum, (_, transform, _)| {
+            sum + transform.translation()
+        }) / player.iter().count() as f32;
         camera_global_transform.translation =
             average_player_position + camera_global_transform.rotation * Vec3::Z * 50.;
+        for (entity, global_transform, _) in player.iter() {
+            if global_transform
+                .translation()
+                .distance(average_player_position)
+                > 20.
+            {
+                commands.entity(entity).remove::<Player>();
+            }
+        }
     }
 }
 
@@ -365,7 +165,6 @@ fn setup_physics(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    /* Create the ground. */
     commands
         .spawn()
         .insert(Collider::cuboid(1000.0, 0.1, 1000.0))
@@ -376,7 +175,6 @@ fn setup_physics(
         })
         .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -10.0, 0.0)));
 
-    // add entities to the world
     for y in -2..=2 {
         for x in -5..=5 {
             // sphere
@@ -426,6 +224,7 @@ struct PartyAnimal {}
 struct GameResources {
     party_material: StandardMaterial,
     scene_entity: Option<Entity>,
+    ui_node: Option<Entity>,
 }
 
 #[derive(Component)]
@@ -507,9 +306,16 @@ fn start_the_party(
     }
 }
 
-fn gameover_checker(players: Query<(), With<Player>>, party_animals: Query<(), With<PartyAnimal>>) {
-    if players.iter().count() == 0 {
-        print!("Game Over! Your score is {}", party_animals.iter().count());
+fn gameover_checker(
+    mut app_state: ResMut<State<AppState>>,
+    players: Query<(), With<Player>>,
+    party_animals: Query<(), With<PartyAnimal>>,
+) {
+    if app_state.current() == &AppState::InGame {
+        if players.iter().count() == 0 {
+            print!("Game Over! Your score is {}", party_animals.iter().count());
+            app_state.set(AppState::GameOver).unwrap();
+        }
     }
 }
 
@@ -543,9 +349,8 @@ fn player_collectables(
     }
 }
 
-// fn follow_cam
-
 fn connect_from_scene(
+    mut app_state: ResMut<State<AppState>>,
     named_entities: Query<(Entity, &Name, &Transform), Added<Name>>,
     named_entities_with_children: Query<(Entity, &Name, &Children, &Transform), Added<Name>>,
     meshes: Query<&Handle<Mesh>>,
@@ -629,6 +434,7 @@ fn connect_from_scene(
                 .unwrap(),
             );
         }
+        app_state.set(AppState::InGame).unwrap();
         println!("Goal Geometry Found: {}", name);
     }
     for (entity, name, _, transform) in party_zone {
@@ -720,7 +526,8 @@ fn setup_game_scene(
                 scene: asset_server.load("animals.gltf#Scene0"),
                 ..default()
             })
-            .id());
+            .id(),
+    );
 }
 
 fn cleanup_game_scene(mut game_resources: ResMut<GameResources>, mut commands: Commands) {
@@ -738,10 +545,6 @@ fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
-    commands
-        .spawn()
-        .insert(Toggles {})
-        .insert(Name::new("Toggles"));
     asset_server.watch_for_changes().unwrap();
 
     commands.spawn_bundle(DirectionalLightBundle {
