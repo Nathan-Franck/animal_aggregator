@@ -1,9 +1,5 @@
-use std::os::linux::raw;
-
-use bevy::{input::keyboard::KeyboardInput, prelude::*};
-use bevy_inspector_egui::{Inspectable, RegisterInspectable, WorldInspectorPlugin};
+use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
-use rand::prelude::random;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum AppState {
@@ -19,13 +15,10 @@ fn main() {
         .add_system_set(SystemSet::on_enter(AppState::InGame).with_system(setup_ui))
         .add_system_set(SystemSet::on_enter(AppState::GameOver).with_system(setup_ui))
         .add_system_set(SystemSet::on_update(AppState::GameOver).with_system(any_key_to_restart))
-        // .add_system_set(SystemSet::on_update(AppState::InGame).with_system(setup_menu))
-        // .add_system_set(SystemSet::on_exit(AppState::InGame).with_system(cleanup_game_scene))
         .insert_resource(WindowDescriptor {
             title: "Combine".to_string(),
             width: 800.,
             height: 600.,
-            // position: WindowPosition::At(Vec2 { x: 16., y: 36. }),
             present_mode: bevy::window::PresentMode::AutoVsync,
             ..default()
         })
@@ -58,7 +51,6 @@ fn main() {
             ui_node: None,
             despawned_party_animals_count: 0,
         })
-        // .register_inspectable::<Toggles>()
         .run();
 }
 
@@ -164,7 +156,6 @@ fn setup_ui(
 fn party(time: Res<Time>, mut party_zone: Query<(&mut Transform, &PartyZone)>) {
     for (mut transform, party_zone) in party_zone.iter_mut() {
         let displacement = (time.seconds_since_startup() * 7.).sin().powf(1.).abs() * 1.;
-        // print!("Movin!\n {}", displacement);
         transform.translation = party_zone.bob_position + Vec3::Y * displacement as f32;
     }
 }
@@ -194,8 +185,6 @@ fn follow_cam(
 
 fn setup_physics(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands
         .spawn()
@@ -206,36 +195,6 @@ fn setup_physics(
             ..default()
         })
         .insert_bundle(TransformBundle::from(Transform::from_xyz(0.0, -10.0, 0.0)));
-
-    for y in -2..=2 {
-        for x in -5..=5 {
-            // sphere
-            commands
-                .spawn_bundle(PbrBundle {
-                    mesh: meshes.add(Mesh::from(shape::Icosphere {
-                        radius: 0.5,
-                        subdivisions: 32,
-                    })),
-                    material: materials.add(StandardMaterial {
-                        base_color: Color::hsl(random::<f32>() * 256., 1., 0.5),
-                        metallic: 0.,
-                        perceptual_roughness: 0.,
-                        ..default()
-                    }),
-                    transform: Transform::from_xyz(x as f32, y as f32 + 0.5, 0.0),
-                    ..default()
-                })
-                .insert(RigidBody::Dynamic)
-                .insert(Collider::ball(0.5))
-                .insert(Restitution::coefficient(0.7))
-                .insert(Friction {
-                    coefficient: 0.,
-                    ..default()
-                })
-                .insert(ColliderMassProperties::Density(0.01))
-                .insert(GravityScale(4.));
-        }
-    }
 }
 
 const CHARACTER_SPEED: f32 = 12.;
@@ -603,7 +562,7 @@ fn setup_game_scene(
 }
 
 fn setup(
-    mut game_resources: Res<GameResources>,mut commands: Commands,
+    mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
     asset_server.watch_for_changes().unwrap();
